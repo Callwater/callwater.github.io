@@ -322,55 +322,87 @@
         let schoolMenuData = {}; 
         let customCategories = {}; 
 
-window.checkMateoClash = async () => {
+        
+// --- KROCK-KOLL ANPASSAD FÖR GITHUB PAGES ---
+        window.checkMateoClash = async () => {
             const btn = document.getElementById('clash-btn');
             const originalText = btn ? btn.innerHTML : '';
-            if(btn) { btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Kollar...'; btn.disabled = true; }
+            if(btn) { btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Kollar skolan...'; btn.disabled = true; }
             
             try {
-                window.detectedClashes = {}; // Nollställ gamla krockar
+                window.detectedClashes = {}; 
                 const today = new Date();
                 const dayOfWeek = today.getDay() === 0 ? 7 : today.getDay();
                 const monday = new Date(today);
                 monday.setDate(today.getDate() - dayOfWeek + 1);
                 
-                const fromDate = new Date(monday.getTime() - (monday.getTimezoneOffset() * 60000)).toISOString().split('T')[0];
-                const friday = new Date(monday); friday.setDate(monday.getDate() + 4);
-                const toDate = new Date(friday.getTime() - (friday.getTimezoneOffset() * 60000)).toISOString().split('T')[0];
+                const getYMD = (d) => {
+                    const y = d.getFullYear();
+                    const m = String(d.getMonth() + 1).padStart(2, '0');
+                    const day = String(d.getDate()).padStart(2, '0');
+                    return `${y}-${m}-${day}`;
+                };
 
-                const apiUrl = `https://meny-api.mateo.se/api/v1/days/565?from=${fromDate}&to=${toDate}`;
-                const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(apiUrl)}`);
-                const proxyData = await res.json();
-                const data = JSON.parse(proxyData.contents);
+                const fromDate = getYMD(monday);
+                const friday = new Date(monday); friday.setDate(monday.getDate() + 4);
+                const toDate = getYMD(friday);
+
+                // Eftersom GitHub inte har inbyggd proxy använder vi en extern tjänst (corsproxy.io)
+                // Den är oftast stabilare än allorigins.
+                const targetUrl = `https://meny-api.mateo.se/api/v1/days/565?from=${fromDate}&to=${toDate}`;
+                const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
+
+                const res = await fetch(proxyUrl);
+                if (!res.ok) throw new Error("Kunde inte nå mat-servern via proxyn.");
                 
+                const data = await res.json();
+                const rawMeals = data.data || data;
                 const vardagar = ['Måndag', 'Tisdag', 'Onsdag', 'Torsdag', 'Fredag'];
                 let krockCount = 0;
 
                 vardagar.forEach((dag, index) => {
-                    const dateStr = new Date(monday.getTime() + (index * 86400000)).toISOString().split('T')[0];
-                    const dayData = (data.data || data).find(d => JSON.stringify(d).includes(dateStr));
+                    const dateTarget = new Date(monday);
+                    dateTarget.setDate(monday.getDate() + index);
+                    const dateStr = getYMD(dateTarget);
+                    
+                    const dayData = Array.isArray(rawMeals) ? rawMeals.find(d => d.date === dateStr) : null;
                     const minRatt = window.currentMenu ? window.currentMenu[dag] : null;
 
-                    if (minRatt && dayData) {
-                        const skolmat = JSON.stringify(dayData).toLowerCase();
-                        const ordlista = minRatt.namn.toLowerCase().replace("stroganoff"," stroganoff").split(' ').filter(o => o.length > 3);
-                        if (ordlista.some(ord => skolmat.includes(ord))) {
-                            window.detectedClashes[dag] = true; // Markera krock!
-                            krockCount++;
-                        }
+                    if (minRatt && dayData && dayData.meals) {
+                        const minRattNamn = minRatt.namn.toLowerCase();
+                        
+                        dayData.meals.forEach(m => {
+                            // --- FILTRERING ---
+                            // Vi hoppar över allt som är Lunch 2 (vegetariskt)
+                            if (m.type === "Lunch 2") return;
+
+                            const skolmatText = ((m.name || m.title || "") + " " + (m.description || "")).toLowerCase();
+                            
+                            // Söklogik: dela upp i ord och kolla om de finns i skolans text
+                            const sökOrd = minRattNamn.replace(/stroganoff/g, " stroganoff").split(/[\s,.-]+/).filter(o => o.length >= 3);
+                            
+                            if (sökOrd.some(ord => skolmatText.includes(ord))) {
+                                window.detectedClashes[dag] = true;
+                                krockCount++;
+                            }
+                        });
                     }
                 });
 
-                window.renderMenuUI(); // Rita om menyn för att visa ikonerna
+                window.renderMenuUI();
 
                 if (krockCount > 0) {
-                    alert(`⚠️ ${krockCount} krockar hittades! De har markerats i menyn.`);
+                    alert(`⚠️ Krock! ${krockCount} dag(ar) har liknande mat som skolan (Vego exkluderat).`);
                 } else {
-                    alert("✅ Inga krockar hittades!");
+                    alert("✅ Inga krockar hittades med skolans huvudrätter!");
                 }
 
-            } catch (e) { alert("Fel vid hämtning."); }
-            finally { if(btn) { btn.innerHTML = originalText; btn.disabled = false; } }
+            } catch (error) {
+                console.error("Fel:", error);
+                alert("Kunde inte hämta skolmaten. Det kan bero på tillfälligt fel hos proxyn.");
+            } finally {
+                if(btn) { btn.innerHTML = originalText; btn.disabled = false; }
+            }
         };
 
         function updateSchoolUI() {
@@ -1198,4 +1230,5 @@ window.renderMenuUI = () => {
         };
     </script>
 </body>
+
 </html>
