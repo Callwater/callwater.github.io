@@ -332,9 +332,19 @@ window.checkMateoClash = async () => {
             try {
                 window.detectedClashes = {}; 
                 const today = new Date();
-                const dayOfWeek = today.getDay() === 0 ? 7 : today.getDay();
-                const monday = new Date(today);
-                monday.setDate(today.getDate() - dayOfWeek + 1);
+                const dayOfWeek = today.getDay(); // 0 = Söndag, 6 = Lördag
+                
+                let monday = new Date(today);
+                
+                // --- HELG-LOGIK: Hoppa fram till nästa vecka om det är lördag eller söndag ---
+                if (dayOfWeek === 6) { // Lördag
+                    monday.setDate(today.getDate() + 2);
+                } else if (dayOfWeek === 0) { // Söndag
+                    monday.setDate(today.getDate() + 1);
+                } else { // Vardag: Gå till måndagen i denna vecka
+                    const diff = today.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1);
+                    monday.setDate(diff);
+                }
                 
                 const getYMD = (d) => {
                     const y = d.getFullYear();
@@ -344,8 +354,11 @@ window.checkMateoClash = async () => {
                 };
 
                 const fromDate = getYMD(monday);
-                const friday = new Date(monday); friday.setDate(monday.getDate() + 4);
+                const friday = new Date(monday); 
+                friday.setDate(monday.getDate() + 4);
                 const toDate = getYMD(friday);
+
+                console.log(`🔍 Söker mat för vecka med start: ${fromDate}`);
 
                 const targetUrl = `https://meny-api.mateo.se/api/v1/days/565?from=${fromDate}&to=${toDate}`;
                 const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
@@ -354,7 +367,6 @@ window.checkMateoClash = async () => {
                 if (!res.ok) throw new Error("Kunde inte nå mat-servern.");
                 
                 const data = await res.json();
-                // Mateo skickar ibland svaret direkt eller inuti ett 'data'-objekt
                 const rawMeals = data.data || data;
                 const vardagar = ['Måndag', 'Tisdag', 'Onsdag', 'Torsdag', 'Fredag'];
                 let krockCount = 0;
@@ -364,28 +376,23 @@ window.checkMateoClash = async () => {
                     dateTarget.setDate(monday.getDate() + index);
                     const dateStr = getYMD(dateTarget);
                     
-                    // Hitta rätt dag i API-svaret
-                    const dayData = Array.isArray(rawMeals) ? rawMeals.find(d => d.date === dateStr) : null;
+                    const dayData = Array.isArray(rawMeals) 
+                        ? rawMeals.find(d => (d.date || "").includes(dateStr)) 
+                        : null;
+                        
                     const minRatt = window.currentMenu ? window.currentMenu[dag] : null;
 
                     if (minRatt && dayData && dayData.meals) {
                         const minRattNamn = minRatt.namn.toLowerCase();
                         
-                        // --- STENHÅRD FILTRERING ---
-                        // Vi tittar på varje maträtt för sig och kollar dess 'type'
-                        const baraHuvudratter = dayData.meals.filter(m => {
-                            // Vi godkänner INTE 'Lunch 2' (vego)
-                            return m.type !== "Lunch 2";
-                        });
+                        // FILTRERING: Ta bort Lunch 2 (vegetariskt)
+                        const huvudrätter = dayData.meals.filter(m => m.type !== "Lunch 2");
 
-                        baraHuvudratter.forEach(m => {
-                            // Vi letar nu ENBART i fältet 'name' på de godkända rätterna
-                            const skolansRattNamn = (m.name || "").toLowerCase();
-                            
-                            // Dela upp ditt receptnamn i sökord (t.ex. "tacos" från "tacosafton")
+                        huvudrätter.forEach(m => {
+                            const skolmatText = ((m.name || m.title || "") + " " + (m.description || "")).toLowerCase();
                             const sökOrd = minRattNamn.replace(/stroganoff/g, " stroganoff").split(/[\s,.-]+/).filter(o => o.length >= 3);
                             
-                            if (sökOrd.some(ord => skolansRattNamn.includes(ord))) {
+                            if (sökOrd.some(ord => skolmatText.includes(ord))) {
                                 window.detectedClashes[dag] = true;
                                 krockCount++;
                             }
@@ -395,10 +402,11 @@ window.checkMateoClash = async () => {
 
                 window.renderMenuUI();
 
+                const veckoText = (dayOfWeek === 0 || dayOfWeek === 6) ? "nästa vecka" : "denna vecka";
                 if (krockCount > 0) {
-                    alert(`⚠️ Krock upptäckt! ${krockCount} dag(ar) matchar skolans huvudrätt. (Vegetariskt alternativ ignorerat)`);
+                    alert(`⚠️ Krock! ${krockCount} dag(ar) matchar skolans meny för ${veckoText}. (Vegetariskt ignorerat)`);
                 } else {
-                    alert("✅ Inga krockar hittades med skolans huvudrätter!");
+                    alert(`✅ Inga krockar hittades för ${veckoText}!`);
                 }
 
             } catch (error) {
@@ -1236,4 +1244,5 @@ window.renderMenuUI = () => {
 </body>
 
 </html>
+
 
