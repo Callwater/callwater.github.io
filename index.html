@@ -324,10 +324,10 @@
 
         
 // --- KROCK-KOLL ANPASSAD FÖR GITHUB PAGES ---
-        window.checkMateoClash = async () => {
+window.checkMateoClash = async () => {
             const btn = document.getElementById('clash-btn');
             const originalText = btn ? btn.innerHTML : '';
-            if(btn) { btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Kollar skolan...'; btn.disabled = true; }
+            if(btn) { btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Synkar...'; btn.disabled = true; }
             
             try {
                 window.detectedClashes = {}; 
@@ -347,15 +347,14 @@
                 const friday = new Date(monday); friday.setDate(monday.getDate() + 4);
                 const toDate = getYMD(friday);
 
-                // Eftersom GitHub inte har inbyggd proxy använder vi en extern tjänst (corsproxy.io)
-                // Den är oftast stabilare än allorigins.
                 const targetUrl = `https://meny-api.mateo.se/api/v1/days/565?from=${fromDate}&to=${toDate}`;
                 const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
 
                 const res = await fetch(proxyUrl);
-                if (!res.ok) throw new Error("Kunde inte nå mat-servern via proxyn.");
+                if (!res.ok) throw new Error("Kunde inte nå mat-servern.");
                 
                 const data = await res.json();
+                // Mateo skickar ibland svaret direkt eller inuti ett 'data'-objekt
                 const rawMeals = data.data || data;
                 const vardagar = ['Måndag', 'Tisdag', 'Onsdag', 'Torsdag', 'Fredag'];
                 let krockCount = 0;
@@ -365,23 +364,28 @@
                     dateTarget.setDate(monday.getDate() + index);
                     const dateStr = getYMD(dateTarget);
                     
+                    // Hitta rätt dag i API-svaret
                     const dayData = Array.isArray(rawMeals) ? rawMeals.find(d => d.date === dateStr) : null;
                     const minRatt = window.currentMenu ? window.currentMenu[dag] : null;
 
                     if (minRatt && dayData && dayData.meals) {
                         const minRattNamn = minRatt.namn.toLowerCase();
                         
-                        dayData.meals.forEach(m => {
-                            // --- FILTRERING ---
-                            // Vi hoppar över allt som är Lunch 2 (vegetariskt)
-                            if (m.type === "Lunch 2") return;
+                        // --- STENHÅRD FILTRERING ---
+                        // Vi tittar på varje maträtt för sig och kollar dess 'type'
+                        const baraHuvudratter = dayData.meals.filter(m => {
+                            // Vi godkänner INTE 'Lunch 2' (vego)
+                            return m.type !== "Lunch 2";
+                        });
 
-                            const skolmatText = ((m.name || m.title || "") + " " + (m.description || "")).toLowerCase();
+                        baraHuvudratter.forEach(m => {
+                            // Vi letar nu ENBART i fältet 'name' på de godkända rätterna
+                            const skolansRattNamn = (m.name || "").toLowerCase();
                             
-                            // Söklogik: dela upp i ord och kolla om de finns i skolans text
+                            // Dela upp ditt receptnamn i sökord (t.ex. "tacos" från "tacosafton")
                             const sökOrd = minRattNamn.replace(/stroganoff/g, " stroganoff").split(/[\s,.-]+/).filter(o => o.length >= 3);
                             
-                            if (sökOrd.some(ord => skolmatText.includes(ord))) {
+                            if (sökOrd.some(ord => skolansRattNamn.includes(ord))) {
                                 window.detectedClashes[dag] = true;
                                 krockCount++;
                             }
@@ -392,14 +396,14 @@
                 window.renderMenuUI();
 
                 if (krockCount > 0) {
-                    alert(`⚠️ Krock! ${krockCount} dag(ar) har liknande mat som skolan (Vego exkluderat).`);
+                    alert(`⚠️ Krock upptäckt! ${krockCount} dag(ar) matchar skolans huvudrätt. (Vegetariskt alternativ ignorerat)`);
                 } else {
                     alert("✅ Inga krockar hittades med skolans huvudrätter!");
                 }
 
             } catch (error) {
                 console.error("Fel:", error);
-                alert("Kunde inte hämta skolmaten. Det kan bero på tillfälligt fel hos proxyn.");
+                alert("Kunde inte analysera skolmaten.");
             } finally {
                 if(btn) { btn.innerHTML = originalText; btn.disabled = false; }
             }
@@ -1232,3 +1236,4 @@ window.renderMenuUI = () => {
 </body>
 
 </html>
+
