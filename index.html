@@ -1075,16 +1075,37 @@ window.renderMenuUI = () => {
         window.dragLeave = (e) => { e.currentTarget.classList.remove('drag-over'); };
         window.drop = (e) => { e.preventDefault(); const targetDay = e.currentTarget.getAttribute('data-day'); const sourceDay = e.dataTransfer.getData('text/plain'); e.currentTarget.classList.remove('drag-over'); document.querySelector('.dragging')?.classList.remove('dragging'); if (sourceDay && targetDay && sourceDay !== targetDay) { const temp = window.currentMenu[sourceDay]; window.currentMenu[sourceDay] = window.currentMenu[targetDay]; window.currentMenu[targetDay] = temp; window.renderMenuUI(); showToast('Rätter växlade!'); } };
 
-        function generateShoppingList(ing) {
-            const u = [...new Set(ing.map(i => i.trim()))]; const bas = [], cats = {};
-            u.forEach(i => { 
+function generateShoppingList(ing) {
+            // 1. Skapa en "katalog" för att hålla koll på unika varor (små bokstäver)
+            const seen = new Set();
+            const uniqueIngredients = [];
+
+            ing.forEach(i => {
+                const trimmed = i.trim();
+                const lower = trimmed.toLowerCase();
+                
+                // Om vi inte har sett den här varan förut (oavsett stora/små bokstäver)
+                if (!seen.has(lower) && trimmed !== "") {
+                    seen.add(lower);
+                    // Spara den med snygg stor bokstav i början
+                    uniqueIngredients.push(trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase());
+                }
+            });
+
+            // 2. Fortsätt med din befintliga logik för basvaror och kategorier
+            const bas = [], cats = {};
+            uniqueIngredients.forEach(i => { 
                 const cleanI = i.toLowerCase(); 
-                if (basvarorSet.has(cleanI)) bas.push(i); 
-                else { 
+                if (basvarorSet.has(cleanI)) {
+                    bas.push(i); 
+                } else { 
                     const cat = categorizeIngredient(i); 
-                    if(!cats[cat]) cats[cat] = []; cats[cat].push(i); 
+                    if(!cats[cat]) cats[cat] = []; 
+                    cats[cat].push(i); 
                 } 
             });
+
+            // Här fortsätter du med att rendera listan...
             bas.sort(); 
             const c = document.getElementById('shopping-list-content'); c.innerHTML = ''; hiddenItemsCount = 0; document.getElementById('hidden-items-info').classList.add('hidden');
             
@@ -1252,6 +1273,7 @@ window.renderMenuUI = () => {
 </body>
 
 </html>
+
 
 
 
