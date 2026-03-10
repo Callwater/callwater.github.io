@@ -1,0 +1,5 @@
+[[redirects]]
+  from = "/api/mateo/*"
+  to = "https://meny.mateo.se/:splat"
+  status = 200
+  force = true
