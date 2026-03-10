@@ -332,20 +332,21 @@ window.checkMateoClash = async () => {
             try {
                 window.detectedClashes = {}; 
                 const today = new Date();
-                const dayOfWeek = today.getDay(); // 0 = Söndag, 6 = Lördag
+                const dayOfWeek = today.getDay(); // 0 = Söndag, 1 = Måndag...
                 
                 let monday = new Date(today);
                 
-                // --- HELG-LOGIK: Hoppa fram till nästa vecka om det är lördag eller söndag ---
-                if (dayOfWeek === 6) { // Lördag
+                // --- HELG-LOGIK ---
+                if (dayOfWeek === 6) { // Lördag -> Nästa måndag
                     monday.setDate(today.getDate() + 2);
-                } else if (dayOfWeek === 0) { // Söndag
+                } else if (dayOfWeek === 0) { // Söndag -> Nästa måndag
                     monday.setDate(today.getDate() + 1);
-                } else { // Vardag: Gå till måndagen i denna vecka
-                    const diff = today.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1);
+                } else { // Vardag -> Denna veckas måndag
+                    const diff = today.getDate() - (dayOfWeek - 1);
                     monday.setDate(diff);
                 }
                 
+                // Hjälpfunktion för datumformat YYYY-MM-DD
                 const getYMD = (d) => {
                     const y = d.getFullYear();
                     const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -358,7 +359,7 @@ window.checkMateoClash = async () => {
                 friday.setDate(monday.getDate() + 4);
                 const toDate = getYMD(friday);
 
-                console.log(`🔍 Söker mat för vecka med start: ${fromDate}`);
+                console.log(`🔍 Kollar krockar för perioden: ${fromDate} till ${toDate}`);
 
                 const targetUrl = `https://meny-api.mateo.se/api/v1/days/565?from=${fromDate}&to=${toDate}`;
                 const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
@@ -376,23 +377,44 @@ window.checkMateoClash = async () => {
                     dateTarget.setDate(monday.getDate() + index);
                     const dateStr = getYMD(dateTarget);
                     
+                    // 1. Hitta rätt dag i API:et (vi kollar både .date och sträng-matchning)
                     const dayData = Array.isArray(rawMeals) 
-                        ? rawMeals.find(d => (d.date || "").includes(dateStr)) 
+                        ? rawMeals.find(d => String(d.date || "").includes(dateStr)) 
                         : null;
                         
-                    const minRatt = window.currentMenu ? window.currentMenu[dag] : null;
+                    // 2. Hitta DIN mat för den dagen (kollar både 'Måndag' och 'måndag')
+                    const minRatt = window.currentMenu[dag] || window.currentMenu[dag.toLowerCase()];
 
                     if (minRatt && dayData && dayData.meals) {
                         const minRattNamn = minRatt.namn.toLowerCase();
                         
-                        // FILTRERING: Ta bort Lunch 2 (vegetariskt)
+                        // 3. FILTRERING: Ta bort Lunch 2 (vegetariskt)
                         const huvudrätter = dayData.meals.filter(m => m.type !== "Lunch 2");
 
                         huvudrätter.forEach(m => {
-                            const skolmatText = ((m.name || m.title || "") + " " + (m.description || "")).toLowerCase();
-                            const sökOrd = minRattNamn.replace(/stroganoff/g, " stroganoff").split(/[\s,.-]+/).filter(o => o.length >= 3);
+                            // 4. Samla all text från skolan (namn, titel, beskrivning)
+                            const skolmatText = (
+                                (m.name || "") + " " + 
+                                (m.title || "") + " " + 
+                                (m.description || "")
+                            ).toLowerCase();
                             
-                            if (sökOrd.some(ord => skolmatText.includes(ord))) {
+                            // 5. Dela upp ditt namn i sökord för att hitta t.ex. "korv" i "korvstroganoff"
+                            // Vi lägger till vanliga sammansatta ord här
+                            const sökOrd = minRattNamn
+                                .replace("stroganoff", " stroganoff")
+                                .replace("bullar", " bullar")
+                                .replace("biffar", " biffar")
+                                .replace("gryta", " gryta")
+                                .replace("pudding", " pudding")
+                                .split(/[\s,.-]+/)
+                                .filter(o => o.length >= 3);
+                            
+                            // 6. JÄMFÖR: Finns något av dina ord i skolans text?
+                            const ärKrock = sökOrd.some(ord => skolmatText.includes(ord));
+
+                            if (ärKrock) {
+                                console.log(`⚠️ KROCK HITTAD: ${dag} (${dateStr}). Din: "${minRatt.namn}" vs Skolans: "${m.name}"`);
                                 window.detectedClashes[dag] = true;
                                 krockCount++;
                             }
@@ -400,18 +422,18 @@ window.checkMateoClash = async () => {
                     }
                 });
 
+                // Uppdatera UI och visa resultat
                 window.renderMenuUI();
 
-                const veckoText = (dayOfWeek === 0 || dayOfWeek === 6) ? "nästa vecka" : "denna vecka";
                 if (krockCount > 0) {
-                    alert(`⚠️ Krock! ${krockCount} dag(ar) matchar skolans meny för ${veckoText}. (Vegetariskt ignorerat)`);
+                    alert(`⚠️ Krock upptäckt! ${krockCount} dag(ar) har liknande mat som skolan. (Vegetariskt ignorerat)`);
                 } else {
-                    alert(`✅ Inga krockar hittades för ${veckoText}!`);
+                    alert("✅ Inga krockar hittades med skolans huvudrätter!");
                 }
 
             } catch (error) {
-                console.error("Fel:", error);
-                alert("Kunde inte analysera skolmaten.");
+                console.error("Fel vid krock-koll:", error);
+                alert("Kunde inte hämta skolmaten.");
             } finally {
                 if(btn) { btn.innerHTML = originalText; btn.disabled = false; }
             }
@@ -1244,5 +1266,6 @@ window.renderMenuUI = () => {
 </body>
 
 </html>
+
 
 
