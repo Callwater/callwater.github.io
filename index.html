@@ -1076,35 +1076,156 @@ window.renderMenuUI = () => {
         window.drop = (e) => { e.preventDefault(); const targetDay = e.currentTarget.getAttribute('data-day'); const sourceDay = e.dataTransfer.getData('text/plain'); e.currentTarget.classList.remove('drag-over'); document.querySelector('.dragging')?.classList.remove('dragging'); if (sourceDay && targetDay && sourceDay !== targetDay) { const temp = window.currentMenu[sourceDay]; window.currentMenu[sourceDay] = window.currentMenu[targetDay]; window.currentMenu[targetDay] = temp; window.renderMenuUI(); showToast('Rätter växlade!'); } };
 
 function generateShoppingList(ing) {
-            // 1. Skapa en "katalog" för att hålla koll på unika varor (små bokstäver)
             const seen = new Set();
             const uniqueIngredients = [];
 
             ing.forEach(i => {
                 const trimmed = i.trim();
                 const lower = trimmed.toLowerCase();
-                
-                // Om vi inte har sett den här varan förut (oavsett stora/små bokstäver)
-                if (!seen.has(lower) && trimmed !== "") {
+                if (lower && !seen.has(lower)) {
                     seen.add(lower);
-                    // Spara den med snygg stor bokstav i början
-                    uniqueIngredients.push(trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase());
+                    uniqueIngredients.push(trimmed.charAt(0).toUpperCase() + trimmed.slice(1));
                 }
             });
 
-            // 2. Fortsätt med din befintliga logik för basvaror och kategorier
-            const bas = [], cats = {};
+            const bas = [];
+            const cats = {};
+
             uniqueIngredients.forEach(i => { 
                 const cleanI = i.toLowerCase(); 
-                if (basvarorSet.has(cleanI)) {
+                if (window.basvarorSet && window.basvarorSet.has(cleanI)) {
                     bas.push(i); 
                 } else { 
-                    const cat = categorizeIngredient(i); 
+                    const cat = typeof categorizeIngredient === 'function' ? categorizeIngredient(i) : "Övrigt"; 
                     if(!cats[cat]) cats[cat] = []; 
                     cats[cat].push(i); 
                 } 
             });
 
+            // --- NY SORTERINGSLOGIK ---
+            // Hämta sparad ordning eller använd standard
+            let savedOrder = JSON.parse(localStorage.getItem('categoryOrder')) || [];
+            
+            // Skapa en lista på de kategorier som faktiskt finns i nuvarande lista
+            let currentCats = Object.keys(cats);
+            
+            // Sortera: De som finns i savedOrder kommer först, resten sist
+            currentCats.sort((a, b) => {
+                let indexA = savedOrder.indexOf(a);
+                let indexB = savedOrder.indexOf(b);
+                if (indexA === -1) indexA = 99;
+                if (indexB === -1) indexB = 99;
+                return indexA - indexB;
+            });
+
+            const listContainer = document.getElementById('shopping-list-items');
+            if (listContainer) {
+                renderShoppingListUI(listContainer, bas, cats, currentCats);
+            }
+        }
+
+            // ... tidigare kod (kanske firebase eller menyer) ...
+
+function generateShoppingList(ing) {
+    // ... koden för att rensa dubbletter och kategorisera ...
+    // (Längst ner i denna funktion anropas renderShoppingListUI)
+}
+
+// Rendera lista 
+function renderShoppingListUI(container, bas, cats, sortedCatNames) {
+    container.innerHTML = '';
+
+    // 1. Rendera Basvaror
+    if (bas.length > 0) {
+        const basHTML = `
+            <div class="mb-6 bg-gray-50 p-3 rounded-lg border border-gray-200">
+                <h3 class="font-bold text-gray-500 text-xs uppercase mb-2 tracking-wider">Basvaror (Ska finnas hemma)</h3>
+                <div class="grid grid-cols-2 gap-2">
+                    ${bas.map(i => `<div class="text-sm text-gray-400">/ ${i}</div>`).join('')}
+                </div>
+            </div>`;
+        container.insertAdjacentHTML('beforeend', basHTML);
+    }
+
+    // 2. Skapa behållaren för de dragbara kategorierna
+    const dragContainer = document.createElement('div');
+    dragContainer.id = "draggable-categories";
+    container.appendChild(dragContainer);
+
+    // 3. Rendera varje kategori som ett dragbart block
+    sortedCatNames.forEach(catName => {
+        const section = document.createElement('div');
+        section.className = "category-block mb-4 bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden cursor-move touch-none";
+        section.draggable = true;
+        section.dataset.name = catName;
+
+        section.innerHTML = `
+            <div class="bg-emerald-50 px-4 py-2 border-b border-emerald-100 flex justify-between items-center pointer-events-none">
+                <h3 class="font-bold text-emerald-800 text-sm">${catName}</h3>
+                <i class="fas fa-grip-lines text-emerald-300 text-xs"></i>
+            </div>
+            <div class="p-2">
+                ${cats[catName].map((item, idx) => `
+                    <div class="flex items-center space-x-3 p-2 border-b border-gray-50 last:border-0">
+                        <input type="checkbox" id="chk-${catName}-${idx}" class="w-5 h-5 rounded border-gray-300 text-emerald-600">
+                        <label for="chk-${catName}-${idx}" class="text-gray-700 text-sm flex-grow">${item}</label>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+        
+        // Koppla drag-funktionen till varje block
+        if (typeof addDragListeners === 'function') {
+            addDragListeners(section);
+        }
+        dragContainer.appendChild(section);
+    });
+}
+
+let dragSrcEl = null;
+
+        function addDragListeners(el) {
+            el.addEventListener('dragstart', function(e) {
+                dragSrcEl = this;
+                e.dataTransfer.effectAllowed = 'move';
+                this.classList.add('opacity-50', 'scale-95');
+            });
+
+            el.addEventListener('dragover', function(e) {
+                e.preventDefault();
+                return false;
+            });
+
+            el.addEventListener('drop', function(e) {
+                e.stopPropagation();
+                if (dragSrcEl !== this) {
+                    const container = document.getElementById('draggable-categories');
+                    const allBlocks = [...container.querySelectorAll('.category-block')];
+                    const fromIndex = allBlocks.indexOf(dragSrcEl);
+                    const toIndex = allBlocks.indexOf(this);
+
+                    if (fromIndex < toIndex) {
+                        this.after(dragSrcEl);
+                    } else {
+                        this.before(dragSrcEl);
+                    }
+                    saveNewOrder();
+                }
+                return false;
+            });
+
+            el.addEventListener('dragend', function() {
+                this.classList.remove('opacity-50', 'scale-95');
+            });
+        }
+
+        function saveNewOrder() {
+            const container = document.getElementById('draggable-categories');
+            const newOrder = [...container.querySelectorAll('.category-block')].map(el => el.dataset.name);
+            localStorage.setItem('categoryOrder', JSON.stringify(newOrder));
+            console.log("Ny ordning sparad:", newOrder);
+        }
+            
             // Här fortsätter du med att rendera listan...
             bas.sort(); 
             const c = document.getElementById('shopping-list-content'); c.innerHTML = ''; hiddenItemsCount = 0; document.getElementById('hidden-items-info').classList.add('hidden');
@@ -1273,6 +1394,7 @@ function generateShoppingList(ing) {
 </body>
 
 </html>
+
 
 
 
