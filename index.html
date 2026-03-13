@@ -324,9 +324,9 @@
 
         
 // --- UPPDATERAD SKOLMATSKOLL (FIXAR 403 FORBIDDEN) ---
-        window.checkMateoClash = async () => {
+window.checkMateoClash = async () => {
             const btn = document.getElementById('clash-btn');
-            if(btn) { btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Ansluter via reservtunnel...'; btn.disabled = true; }
+            if(btn) { btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Rensar falska krockar...'; btn.disabled = true; }
             
             try {
                 window.detectedClashes = {};
@@ -337,66 +337,68 @@
                 const from = mon.toISOString().split('T')[0];
                 const to = new Date(mon.getTime() + 4 * 86400000).toISOString().split('T')[0];
                 
-                // 1. VI BYTER TILL ALLORIGINS PROXY
                 const target = `https://meny-api.mateo.se/api/v1/days/565?from=${from}&to=${to}`;
-                const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(target)}`;
-                
-                const res = await fetch(proxyUrl);
-                if (!res.ok) throw new Error("Kunde inte nå mat-servern via proxyn.");
-                
-                // 2. ALLORIGINS KRÄVER ATT VI LÄSER "contents" OCH PARSAR JSON
+                const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(target)}`);
                 const responseData = await res.json();
                 const json = JSON.parse(responseData.contents);
                 const meals = json.data || json;
                 
                 const vardagar = ['Måndag', 'Tisdag', 'Onsdag', 'Torsdag', 'Fredag'];
+
+                // --- 1. STOPPORD (Ord som ALDRIG ska trigga en krock) ---
+                const stoppOrd = ['potatis', 'ris', 'pasta', 'makaroner', 'serveras', 'tillbehör', 'med', 'och', 'stekt', 'kokt', 'ugnsstekt', 'sås', 'mos', 'sallad', 'bröd'];
+
+                // --- 2. GRUPPER (För smartare matchning) ---
                 const GRUPPER = [
-                    {n:'Fisk', o:['fisk','lax','pinnar','panerad','torsk']},
-                    {n:'Pasta', o:['pasta','lasagne','makaroner','spaghetti']},
-                    {n:'Färs', o:['köttbullar','biff','burgare','färs','järpar']},
-                    {n:'Taco', o:['taco','tortilla','nacho','tex-mex']},
-                    {n:'Kyckling', o:['kyckling','nuggets','filé']}
+                    {n:'Fisk', o:['fisk','lax','pinnar','panerad','torsk','sej','fiskgratäng']},
+                    {n:'Färs', o:['köttbullar','biff','burgare','järpar','kålpudding','palt']},
+                    {n:'Taco', o:['taco','tortilla','nacho','tex-mex','fajita']},
+                    {n:'Kyckling', o:['kyckling','nuggets','filé','klubba']}
                 ];
 
                 vardagar.forEach((dag, i) => {
                     const min = window.currentMenu[dag];
-                    // Hitta rätt datum i skolans lista
                     const dateMatch = new Date(mon.getTime() + i * 86400000).toISOString().split('T')[0];
                     const skol = Array.isArray(meals) ? meals.find(d => String(d.date).includes(dateMatch)) : null;
                     
                     if(min && skol && skol.meals) {
+                        const minT = min.namn.toLowerCase();
+                        
+                        // Rensa din rätt från stoppord
+                        const minOrd = minT.split(/[\s,.-]+/).filter(o => o.length > 3 && !stoppOrd.includes(o));
+
                         skol.meals.forEach(m => {
-                            // 3. FILTRERA BORT VEGETARISKT (Lunch 2)
-                            if(m.type === "Lunch 2") return;
+                            if(m.type === "Lunch 2") return; // Ignorera vegetariskt
                             
-                            const t = (m.name + ' ' + (m.description||'')).toLowerCase();
-                            const minT = min.namn.toLowerCase();
-                            
-                            // Kolla exakt ordmatchning
-                            let k = minT.split(' ').some(o => o.length > 3 && t.includes(o));
-                            
-                            // Kolla gruppmatchning (Fiskpinnar vs Panerad fisk)
-                            if(!k) GRUPPER.forEach(g => { 
-                                if(g.o.some(o => minT.includes(o)) && g.o.some(o => t.includes(o))) k = true; 
+                            const skolanT = (m.name + ' ' + (m.description||'')).toLowerCase();
+                            let ärKrock = false;
+
+                            // Kolla om något av dina "viktiga" ord finns i skolmaten
+                            minOrd.forEach(ord => {
+                                if(skolanT.includes(ord)) ärKrock = true;
                             });
-                            
-                            if(k) window.detectedClashes[dag] = m.name;
+
+                            // Kolla via smarta grupper (t.ex. fisk vs fiskpinnar)
+                            if(!ärKrock) {
+                                GRUPPER.forEach(g => { 
+                                    const jagHar = g.o.some(o => minT.includes(o));
+                                    const skolanHar = g.o.some(o => skolanT.includes(o));
+                                    if(jagHar && skolanHar) ärKrock = true;
+                                });
+                            }
+
+                            if(ärKrock) window.detectedClashes[dag] = m.name;
                         });
                     }
                 });
 
                 window.renderMenuUI();
-                showToast("Skolmaten jämförd!");
+                showToast("Krockar uppdaterade!");
             } catch(e) { 
-                console.error("Fel i krock-kollen:", e); 
-                showToast("Kunde inte hämta skolmat. För många anrop?"); 
+                console.error(e); 
+                showToast("Kunde inte hämta matsedel."); 
             }
-            finally { 
-                if(btn) { 
-                    btn.innerHTML = '<i class="fas fa-exclamation-triangle mr-2"></i> Jämför med Skolmaten'; 
-                    btn.disabled = false; 
-                } 
-            }
+            finally { if(btn) { btn.innerHTML = '<i class="fas fa-exclamation-triangle mr-2"></i> Jämför med Skolmaten'; btn.disabled = false; } }
         };
 
         function updateSchoolUI() {
@@ -1247,6 +1249,7 @@ function generateShoppingList(ing) {
 </body>
 
 </html>
+
 
 
 
