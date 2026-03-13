@@ -323,105 +323,79 @@
         let customCategories = {}; 
 
         
-// --- KROCK-KOLL ANPASSAD FÖR GITHUB PAGES ---
-window.checkMateoClash = async () => {
+// --- UPPDATERAD SKOLMATSKOLL (FIXAR 403 FORBIDDEN) ---
+        window.checkMateoClash = async () => {
             const btn = document.getElementById('clash-btn');
-            const originalText = btn ? btn.innerHTML : '';
-            if(btn) { btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Synkar...'; btn.disabled = true; }
+            if(btn) { btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Ansluter via reservtunnel...'; btn.disabled = true; }
             
             try {
-                window.detectedClashes = {}; 
+                window.detectedClashes = {};
                 const today = new Date();
-                const dayOfWeek = today.getDay();
+                let mon = new Date(today);
+                mon.setDate(today.getDate() - (today.getDay() === 0 ? 6 : today.getDay() - 1));
                 
-                let monday = new Date(today);
-                if (dayOfWeek === 6) { monday.setDate(today.getDate() + 2); } 
-                else if (dayOfWeek === 0) { monday.setDate(today.getDate() + 1); } 
-                else { monday.setDate(today.getDate() - (dayOfWeek - 1)); }
+                const from = mon.toISOString().split('T')[0];
+                const to = new Date(mon.getTime() + 4 * 86400000).toISOString().split('T')[0];
                 
-                const getYMD = (d) => {
-                    const y = d.getFullYear();
-                    const m = String(d.getMonth() + 1).padStart(2, '0');
-                    const day = String(d.getDate()).padStart(2, '0');
-                    return `${y}-${m}-${day}`;
-                };
-
-                const fromDate = getYMD(monday);
-                const friday = new Date(monday); 
-                friday.setDate(monday.getDate() + 4);
-                const toDate = getYMD(friday);
-
-                const targetUrl = `https://meny-api.mateo.se/api/v1/days/565?from=${fromDate}&to=${toDate}`;
-                const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
-
+                // 1. VI BYTER TILL ALLORIGINS PROXY
+                const target = `https://meny-api.mateo.se/api/v1/days/565?from=${from}&to=${to}`;
+                const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(target)}`;
+                
                 const res = await fetch(proxyUrl);
-                if (!res.ok) throw new Error("Kunde inte nå mat-servern.");
+                if (!res.ok) throw new Error("Kunde inte nå mat-servern via proxyn.");
                 
-                const data = await res.json();
-                const rawMeals = data.data || data;
+                // 2. ALLORIGINS KRÄVER ATT VI LÄSER "contents" OCH PARSAR JSON
+                const responseData = await res.json();
+                const json = JSON.parse(responseData.contents);
+                const meals = json.data || json;
+                
                 const vardagar = ['Måndag', 'Tisdag', 'Onsdag', 'Torsdag', 'Fredag'];
-                let krockCount = 0;
-
-                // --- ORD SOM SKA IGNORERAS (För att slippa falska krockar) ---
-                const stoppOrd = [
-                    'ris', 'potatis', 'pasta', 'makaroner', 'mos', 'bulgur', 'couscous', 
-                    'med', 'och', 'till', 'friterad', 'stekt', 'kokt', 'ugnsstekt', 
-                    'serveras', 'tillbehör', 'sås', 'remouladsås', 'gräddsås', 'filé'
+                const GRUPPER = [
+                    {n:'Fisk', o:['fisk','lax','pinnar','panerad','torsk']},
+                    {n:'Pasta', o:['pasta','lasagne','makaroner','spaghetti']},
+                    {n:'Färs', o:['köttbullar','biff','burgare','färs','järpar']},
+                    {n:'Taco', o:['taco','tortilla','nacho','tex-mex']},
+                    {n:'Kyckling', o:['kyckling','nuggets','filé']}
                 ];
 
-                vardagar.forEach((dag, index) => {
-                    const dateTarget = new Date(monday);
-                    dateTarget.setDate(monday.getDate() + index);
-                    const dateStr = getYMD(dateTarget);
+                vardagar.forEach((dag, i) => {
+                    const min = window.currentMenu[dag];
+                    // Hitta rätt datum i skolans lista
+                    const dateMatch = new Date(mon.getTime() + i * 86400000).toISOString().split('T')[0];
+                    const skol = Array.isArray(meals) ? meals.find(d => String(d.date).includes(dateMatch)) : null;
                     
-                    const dayData = Array.isArray(rawMeals) 
-                        ? rawMeals.find(d => String(d.date || "").includes(dateStr)) 
-                        : null;
-                        
-                    const minRatt = window.currentMenu[dag] || window.currentMenu[dag.toLowerCase()];
-
-                    if (minRatt && dayData && dayData.meals) {
-                        const minRattNamn = minRatt.namn.toLowerCase();
-                        
-                        // 1. Filtrera bort Lunch 2 (vegetariskt)
-                        const huvudrätter = dayData.meals.filter(m => m.type !== "Lunch 2");
-
-                        huvudrätter.forEach(m => {
-                            const skolmatText = ((m.name || "") + " " + (m.title || "") + " " + (m.description || "")).toLowerCase();
+                    if(min && skol && skol.meals) {
+                        skol.meals.forEach(m => {
+                            // 3. FILTRERA BORT VEGETARISKT (Lunch 2)
+                            if(m.type === "Lunch 2") return;
                             
-                            // 2. Dela upp ditt namn i sökord
-                            const sökOrd = minRattNamn
-                                .replace("stroganoff", " stroganoff")
-                                .replace("bullar", " bullar")
-                                .replace("biffar", " biffar")
-                                .split(/[\s,.-]+/)
-                                // HÄR FILTRERAR VI: Ordet måste vara minst 3 tecken OCH inte finnas i stopplistan
-                                .filter(o => o.length >= 3 && !stoppOrd.includes(o));
+                            const t = (m.name + ' ' + (m.description||'')).toLowerCase();
+                            const minT = min.namn.toLowerCase();
                             
-                            // 3. Jämför de viktiga orden (t.ex. "kyckling" men inte "ris")
-                            const ärKrock = sökOrd.some(ord => skolmatText.includes(ord));
-
-                            if (ärKrock) {
-                                window.detectedClashes[dag] = true;
-                                krockCount++;
-                            }
+                            // Kolla exakt ordmatchning
+                            let k = minT.split(' ').some(o => o.length > 3 && t.includes(o));
+                            
+                            // Kolla gruppmatchning (Fiskpinnar vs Panerad fisk)
+                            if(!k) GRUPPER.forEach(g => { 
+                                if(g.o.some(o => minT.includes(o)) && g.o.some(o => t.includes(o))) k = true; 
+                            });
+                            
+                            if(k) window.detectedClashes[dag] = m.name;
                         });
                     }
                 });
 
                 window.renderMenuUI();
-
-                if (krockCount > 0) {
-                    alert(`⚠️ Krock! ${krockCount} dag(ar) matchar skolans huvudrätt.`);
-                } else {
-                    alert("✅ Inga krockar hittades!");
-                }
-
-            } catch (error) {
-                console.error("Fel:", error);
-                alert("Kunde inte hämta skolmaten.");
-            } finally {
-                if(btn) { btn.innerHTML = originalText; btn.disabled = false; }
+                showToast("Skolmaten jämförd!");
+            } catch(e) { 
+                console.error("Fel i krock-kollen:", e); 
+                showToast("Kunde inte hämta skolmat. För många anrop?"); 
+            }
+            finally { 
+                if(btn) { 
+                    btn.innerHTML = '<i class="fas fa-exclamation-triangle mr-2"></i> Jämför med Skolmaten'; 
+                    btn.disabled = false; 
+                } 
             }
         };
 
@@ -1273,6 +1247,7 @@ function generateShoppingList(ing) {
 </body>
 
 </html>
+
 
 
 
